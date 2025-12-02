@@ -1,0 +1,160 @@
+
+from fastapi import FastAPI,Form
+from fastapi.responses import HTMLResponse,RedirectResponse
+import uvicorn
+import sqlite3
+
+
+
+app = FastAPI()
+DATABASE = 'data.db'
+def init_db():
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS contacts (
+            ID INTEGER PRIMARY KEY AUTOINCREMENT,
+            Fullname TEXT,
+            Email TEXT,
+            country_code INTEGER,
+            phone_number TEXT,
+            identification_number TEXT,
+            Gender TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
+init_db()
+@app.get("/",response_class=HTMLResponse)
+def contact_form():
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM contacts')
+    rows = cursor.fetchall()
+    conn.close()
+    html="""
+    <html>
+        <body>
+            <h2>Contact Form</h2>
+            <form action="/add" method="post">
+                Fullname: <input type="text" name="Fullname"><br><br>
+                Email: <input type="text" name="Email"><br><br>
+                 Country Code:
+                 <select name="country_code">
+                <option value="+1">+1 (USA)</option>
+                <option value="+44">+44 (UK)</option>
+                <option value="+91">+91 (India)</option>
+                <option value="+61">+61 (Australia)</option>
+                </select><br><br>
+                phone_Number: <input type="text" name="phone_number"><br><br>
+                Identification_Number: <input type="text" name="identification_number"><br><br>
+                gender: <input type="text" name="Gender"><br><br>
+                <input type="submit" value="Add Contact">
+            </form>
+        </body>
+    </html>"""
+    return HTMLResponse(html)
+@app.post("/add")
+def add(Fullname: str = Form(...), Email: str = Form(...), country_code: str = Form(...), phone_number: str = Form(...), identification_number: str = Form(...), Gender : str = Form(...)):
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO contacts(Fullname, Email, country_code, phone_number, identification_number, Gender)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (Fullname, Email, country_code, phone_number, identification_number, Gender))
+    conn.commit()    
+    conn.close()
+    return RedirectResponse("/", status_code=303)
+
+@app.post("/delete/{identification_number}")
+def delete(identification_number: str):
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM contacts WHERE identification_number=?', (identification_number,))
+    conn.commit()
+    conn.close()
+    return RedirectResponse("/", status_code=303)
+
+#Terminal 
+def read_contacts():
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM contacts')
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+def update_contact(identification_number: str, Fullname: str = None, Email: str = None, country_code: str = None, phone_number: str = None, Gender : str = None):
+
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM contacts WHERE identification_number=?', (identification_number,))
+    row = cursor.fetchone()
+    if row:
+        updated_Fullname = Fullname if Fullname is not None else row[1]
+        updated_Email = Email if Email is not None else row[2]
+        updated_country_code = country_code if country_code is not None else row[3]
+        updated_phone_number = phone_number if phone_number is not None else row[4]
+        updated_Gender = Gender if Gender is not None else row[6]   
+        cursor.execute('''
+            UPDATE contacts
+            SET Fullname=?, Email=?, country_code=?, phone_number=?, Gender=?
+            WHERE identification_number=?
+        ''', (updated_Fullname, updated_Email, updated_country_code, updated_phone_number, updated_Gender, identification_number))  
+        conn.commit()
+    conn.close()
+
+def delete_contact(identification_number: str):
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM contacts WHERE identification_number=?', (identification_number,))
+    conn.commit()
+    conn.close()
+
+def menu():
+    print("Contact Management System")
+    print("1. Add Contact")
+    print("2. View Contacts")
+    print("3. Update Contact")
+    print("4. Delete Contact")
+    print("5. web")
+    print("6. Exit")
+    while True:
+        choice = input("Enter your choice: ")
+        if choice == '1':
+            Fullname = input("Enter Fullname: ")
+            Email = input("Enter Email: ")
+            country_code = input("Enter Country Code: ")
+            phone_number = input("Enter Phone Number: ")
+            identification_number = input("Enter Identification Number: ")
+            gender = input("Enter Gender: ")
+            add(Fullname,Email,country_code, phone_number, identification_number, gender)
+            print("Contact added successfully.")    
+        elif choice == '2':
+            contacts = read_contacts()
+            for contact in contacts:
+                print(contact)
+        elif choice == '3':
+            identification_number = input("Enter Identification Number of the contact to update: ")
+            Fullname = input("Enter new Fullname (leave blank to keep unchanged): ")
+            Email = input("Enter new Email (leave blank to keep unchanged): ")
+            country_code = input("Enter new Country Code (leave blank to keep unchanged): ")
+            phone_number = input("Enter new Phone Number (leave blank to keep unchanged): ")
+            gender = input("Enter new Gender (leave blank to keep unchanged): ")
+            update_contact(identification_number, Fullname or None, Email or None, country_code or None, phone_number or None, gender or None)
+            print("Contact updated successfully.")
+        elif choice == '4':
+            identification_number = input("Enter Identification Number of the contact to delete: ")
+            delete_contact(identification_number)
+            print("Contact deleted successfully.")
+        elif choice == '5':
+            print("Starting web server...")
+            uvicorn.run(app, host="127.0.0.1", port=8005)
+        elif choice == '6':
+            print("Exiting...")
+            break
+        else:
+            print("Invalid choice. Please try again.")
+if __name__ == "__main__":
+    menu() 
+
+
