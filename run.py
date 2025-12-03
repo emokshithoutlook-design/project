@@ -24,6 +24,8 @@ def init_db():
     ''')
     conn.commit()
     conn.close()
+
+    
 init_db()
 @app.get("/",response_class=HTMLResponse)
 def contact_form():
@@ -37,20 +39,55 @@ def contact_form():
         <body>
             <h2>Contact Form</h2>
             <form action="/add" method="post">
-                Fullname: <input type="text" name="Fullname"><br><br>
-                Email: <input type="text" name="Email"><br><br>
+                Fullname: <input type="text" name="Fullname" required ><br><br>
+                Email: <input type="text" name="Email" required><br><br>
                  Country Code:
-                 <select name="country_code">
+                 <select name="country_code" required>
                 <option value="+1">+1 (USA)</option>
                 <option value="+44">+44 (UK)</option>
                 <option value="+91">+91 (India)</option>
                 <option value="+61">+61 (Australia)</option>
                 </select><br><br>
-                phone_Number: <input type="text" name="phone_number"><br><br>
-                Identification_Number: <input type="text" name="identification_number"><br><br>
-                gender: <input type="text" name="Gender"><br><br>
-                <input type="submit" value="Add Contact">
+                phone_Number: <input type="text" name="phone_number" required><br><br>
+                Identification_Number: <input type="text" name="identification_number" required><br><br>
+                gender: <input type="text" name="Gender" required><br><br>
+                <input type="submit" value="Add Contact"><br><br>
             </form>
+            <form action="/search" method="get">
+                Search Contact:
+                <input type="text" name="search_contact">
+                <input type="submit" value="Search Contact"><br><br>
+            </form>
+            <h2>Contact List</h2>
+            <table border="1">
+                <tr>
+                    <th>ID</th>
+                    <th>Fullname</th>
+                    <th>Email</th>
+                    <th>Country Code</th>
+                    <th>Phone Number</th>
+                    <th>Identification Number</th>
+                    <th>Gender</th> 
+                    <th>Action</th>
+                </tr>"""
+    for row in rows: 
+        html += f"""
+                <tr>
+                    <td>{row[0]}</td>
+                    <td>{row[1]}</td>
+                    <td>{row[2]}</td>
+                    <td>{row[3]}</td>
+                    <td>{row[4]}</td>
+                    <td>{row[5]}</td>
+                    <td>{row[6]}</td>
+                    # <td>
+                    #     <form action="/delete/{row[5]}" method="post" style="display:inline;">
+                    #         <input type="submit" value="Delete">
+                    #     </form>
+                    # </td>
+                </tr>"""
+    html += """
+            </table>                                          
         </body>
     </html>"""
     return HTMLResponse(html)
@@ -74,6 +111,73 @@ def delete(identification_number: str):
     conn.commit()
     conn.close()
     return RedirectResponse("/", status_code=303)
+
+@app.get("/search")
+def search(search_contact: str,response_class=HTMLResponse):
+    q=search_contact
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+
+    query = """
+        SELECT * FROM contacts
+        WHERE 
+            Fullname LIKE ? OR
+            email LIKE ? OR
+            phone_number LIKE ? OR
+            country_code LIKE ? OR
+            identification_number LIKE ? OR
+            gender LIKE ?
+    """
+
+    like_pattern = f"%{q}%"
+    cursor.execute(query, (like_pattern, like_pattern, like_pattern, like_pattern, like_pattern,like_pattern))
+
+    results = cursor.fetchall()
+    conn.close()
+    # return {"results": results}
+    if results:
+        html="""
+        <html>
+            <body>
+                <h2>Search Results</h2>
+                <table border="1">
+                    <tr>
+                        <th>ID</th>
+                        <th>Fullname</th>
+                        <th>Email</th>
+                        <th>Country Code</th>
+                        <th>Phone Number</th>
+                        <th>Identification Number</th>  
+                        <th>Gender</th>
+                    </tr>"""
+        for i in results:
+            html += f"""
+                    <tr>
+                        <td>{i[1]}</td>
+                        <td>{i[2]}</td>
+                        <td>{i[3]}</td>
+                        <td>{i[4]}</td>
+                        <td>{i[5]}</td>
+                        <td>{i[6]}</td>
+                    </tr>"""
+        html += """
+                </table>
+                <br><button><a href="/">Back to Home</a></button>
+            </body>
+        </html>"""
+        return HTMLResponse(html)
+    else:
+        return HTMLResponse("""
+        <html>
+            <body>
+                <h2>No results found.</h2>
+                <br><button><a href="/">Back to Home</a></button>
+            </body>
+        </html>""")
+    
+
+
+
 
 #Terminal 
 def read_contacts():
