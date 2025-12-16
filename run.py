@@ -116,6 +116,7 @@ def contact_form(page: int = 1):
         pagenation_html += f"<a href='/?page={page+1}'><button>Next</button></a>"
     pagenation_html += "</div>"
     html += pagenation_html
+    
 
     return HTMLResponse(html)
 @app.post("/upload_excel")
