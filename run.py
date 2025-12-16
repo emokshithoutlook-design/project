@@ -1,5 +1,6 @@
 
-from fastapi import FastAPI,Form
+from fastapi import FastAPI,Form,UploadFile,File
+import pandas as pd
 from fastapi.responses import HTMLResponse,RedirectResponse
 import uvicorn
 import sqlite3
@@ -28,16 +29,29 @@ def init_db():
     
 init_db()
 @app.get("/",response_class=HTMLResponse)
-def contact_form():
+def contact_form(page: int = 1):
+    page_size = 5
+    offset = (page - 1) * page_size
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM contacts')
+
+    cursor.execute('SELECT count(*) FROM contacts')
+    total_contacts = cursor.fetchone()[0]
+
+    cursor.execute("SELECT * FROM contacts LIMIT ? OFFSET ?", (page_size, offset))
     rows = cursor.fetchall()
     conn.close()
     html="""
     <html>
         <body>
             <h2>Contact Form</h2>
+            <form action="/upload_excel" method="post" enctype="multipart/form-data">
+            <h3>Upload Excel File (Student List)</h3>
+            <input type="file" name="file" accept=".xlsx" required>
+            <input type="submit" value="Upload Excel">
+            </form>
+            <br><br>
+
             <form action="/add" method="post">
                 Fullname: <input type="text" name="Fullname" required ><br><br>
                 Email: <input type="text" name="Email" required><br><br>
@@ -80,17 +94,94 @@ def contact_form():
                     <td>{row[4]}</td>
                     <td>{row[5]}</td>
                     <td>{row[6]}</td>
-                    # <td>
-                    #     <form action="/delete/{row[5]}" method="post" style="display:inline;">
-                    #         <input type="submit" value="Delete">
-                    #     </form>
-                    # </td>
+                    <td>
+                        <form action="/delete/{row[5]}" method="post" style="display:inline;">
+                            <input type="submit" value="Delete">
+                        </form>
+                    </td>
                 </tr>"""
+        
     html += """
             </table>                                          
         </body>
     </html>"""
+    pagenation_html = "<div>"
+    total_pages = (total_contacts+ page_size - 1) // page_size
+    if page > 1:
+        pagenation_html += f"<a href='/?page={page-1}'><button>Previous</button></a> "
+    for p in range(1, total_pages + 1):
+        if p == page:
+            pagenation_html += f"<strong><button>{p}</button></strong> "
+        # else:
+        #     pagenation_html += f'<a href="/?page={p}"><button>{p}</button></a>'
+    if page < total_pages:
+        pagenation_html += f"<a href='/?page={page+1}'><button>Next</button></a>"
+    pagenation_html += "</div>"
+    html += pagenation_html
+
     return HTMLResponse(html)
+@app.post("/upload_excel")
+def upload_excel(file: UploadFile = File(...)):
+    if not file.filename.endswith(".xlsx"):
+        return HTMLResponse("<h3>Only .xlsx Excel files are supported</h3>")
+
+    # Read Excel into Pandas
+    df = pd.read_excel(file.file)
+
+    # REQUIRED COLUMNS IN EXCEL
+    required_columns = ["Fullname", "Email", "country_code", "phone_number", "identification_number", "Gender"]
+
+    # Validate columns
+    for col in required_columns:
+        if col not in df.columns:
+            return HTMLResponse(f"<h3>Missing column in Excel: {col}</h3>")
+
+    df = df.drop_duplicates(subset=["Email", "phone_number"], keep="first")
+
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+
+    inserted_rows = 0
+    skipped_duplicates = 0
+    # Insert each row into DB
+    for  _, row in df.iterrows():
+        cursor.execute("""
+            SELECT COUNT(*) FROM contacts
+            WHERE Email = ? OR phone_number = ?
+        """, (row["Email"], row["phone_number"]))
+        
+        exists = cursor.fetchone()[0]
+
+        if exists:
+            skipped_duplicates += 1
+            continue
+        cursor.execute("""
+            INSERT INTO contacts (Fullname, Email, country_code, phone_number, identification_number, Gender)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            row["Fullname"],
+            row["Email"],
+            row["country_code"],
+            row["phone_number"],
+            row["identification_number"],
+            row["Gender"]
+        ))
+        inserted_rows += 1
+
+    conn.commit()
+    conn.close()
+
+    return HTMLResponse(f"""
+        <html>
+            <body>
+                <h2>Excel Upload Successful</h2>
+                <p>{inserted_rows} contacts inserted into database.</p>
+                <p>{skipped_duplicates} duplicates skipped.</p>
+                <button><a href="/">Go Back</a></button>
+            </body>
+        </html>
+    """)
+
 @app.post("/add")
 def add(Fullname: str = Form(...), Email: str = Form(...), country_code: str = Form(...), phone_number: str = Form(...), identification_number: str = Form(...), Gender : str = Form(...)):
     conn = sqlite3.connect(DATABASE)
@@ -111,15 +202,20 @@ def delete(identification_number: str):
     conn.commit()
     conn.close()
     return RedirectResponse("/", status_code=303)
+    
+@app.get("/search", response_class=HTMLResponse)
+def search(search_contact: str, page: int = 1):
+    q = search_contact
+    page_size = 5
+    offset = (page - 1) * page_size
 
-@app.get("/search")
-def search(search_contact: str,response_class=HTMLResponse):
-    q=search_contact
     conn = sqlite3.connect(DATABASE)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
-    query = """
-        SELECT * FROM contacts
+    like_pattern = f"%{q}%"
+    cursor.execute("""
+        SELECT COUNT(*) FROM contacts
         WHERE 
             Fullname LIKE ? OR
             email LIKE ? OR
@@ -127,42 +223,74 @@ def search(search_contact: str,response_class=HTMLResponse):
             country_code LIKE ? OR
             identification_number LIKE ? OR
             gender LIKE ?
-    """
-
-    like_pattern = f"%{q}%"
-    cursor.execute(query, (like_pattern, like_pattern, like_pattern, like_pattern, like_pattern,like_pattern))
-
+    """, (like_pattern, like_pattern, like_pattern, like_pattern, like_pattern, like_pattern))
+    total_results = cursor.fetchone()[0]
+    cursor.execute("""
+        SELECT * FROM contacts
+        WHERE 
+            ID LIKE ? OR
+            Fullname LIKE ? OR
+            email LIKE ? OR
+            phone_number LIKE ? OR
+            country_code LIKE ? OR
+            identification_number LIKE ? OR
+            gender LIKE ?
+        LIMIT ? OFFSET ?
+    """, (like_pattern,like_pattern,like_pattern,like_pattern,like_pattern,like_pattern,like_pattern, page_size, offset))
     results = cursor.fetchall()
+
     conn.close()
-    # return {"results": results}
+
+    # Render HTML
+    html = "<html><body><h2>Search Results</h2>"
+
     if results:
-        html="""
-        <html>
-            <body>
-                <h2>Search Results</h2>
-                <table border="1">
-                    <tr>
-                        <th>ID</th>
-                        <th>Fullname</th>
-                        <th>Email</th>
-                        <th>Country Code</th>
-                        <th>Phone Number</th>
-                        <th>Identification Number</th>  
-                        <th>Gender</th>
-                    </tr>"""
-        for i in results:
+        html += """
+        <table border="1">
+            <tr>
+                <th>ID</th>
+                <th>Fullname</th>
+                <th>Email</th>
+                <th>Phone Number</th>
+                <th>Country Code</th>
+                <th>Identification Number</th>
+                <th>Gender</th>
+            </tr>
+        """
+
+        for row in results:
             html += f"""
-                    <tr>
-                        <td>{i[1]}</td>
-                        <td>{i[2]}</td>
-                        <td>{i[3]}</td>
-                        <td>{i[4]}</td>
-                        <td>{i[5]}</td>
-                        <td>{i[6]}</td>
-                    </tr>"""
+            <tr>
+                <td>{row['ID']}</td>
+                <td>{row['Fullname']}</td>
+                <td>{row['email']}</td>
+                <td>{row['phone_number']}</td>
+                <td>{row['country_code']}</td>
+                <td>{row['identification_number']}</td>
+                <td>{row['gender']}</td>
+            </tr>
+            """
+
+        html += "</table><br>"
+        # Pagination links
+        html += "<div>"
+        if page > 1:
+            html += f"<a href='/search?search_contact={q}&page={page-1}&page_size={page_size}'><button>Previous</button></a> "
+        total_pages = (total_results + page_size - 1) // page_size
+        for p in range(1, total_pages + 1):
+            if p == page:
+                html += f"<strong><button>{p}</button></strong> "
+            # else:
+            #     html += f'<a href="/search?search_contact={q}&page={p}"></button>{p}</button></a>  '
+
+        if page < total_pages:
+            html += f"<a href='/search?search_contact={q}&page={page+1}&page_size={page_size}'><button>Next</button></a>"
+        html += "</div>"
+
+                
         html += """
                 </table>
-                <br><button><a href="/">Back to Home</a></button>
+                <br><a href="/"><button>Back to Home</button></a>
             </body>
         </html>"""
         return HTMLResponse(html)
@@ -174,7 +302,6 @@ def search(search_contact: str,response_class=HTMLResponse):
                 <br><button><a href="/">Back to Home</a></button>
             </body>
         </html>""")
-    
 
 
 
@@ -252,7 +379,7 @@ def menu():
             print("Contact deleted successfully.")
         elif choice == '5':
             print("Starting web server...")
-            uvicorn.run(app, host="127.0.0.1", port=8005)
+            uvicorn.run(app, host="127.0.0.1", port=8006)
         elif choice == '6':
             print("Exiting...")
             break
