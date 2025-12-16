@@ -112,12 +112,11 @@ def contact_form(page: int = 1):
     for p in range(1, total_pages + 1):
         if p == page:
             pagenation_html += f"<strong><button>{p}</button></strong> "
-        # else:
-        #     pagenation_html += f'<a href="/?page={p}"><button>{p}</button></a>'
     if page < total_pages:
         pagenation_html += f"<a href='/?page={page+1}'><button>Next</button></a>"
     pagenation_html += "</div>"
     html += pagenation_html
+    
 
     return HTMLResponse(html)
 @app.post("/upload_excel")
@@ -280,8 +279,6 @@ def search(search_contact: str, page: int = 1):
         for p in range(1, total_pages + 1):
             if p == page:
                 html += f"<strong><button>{p}</button></strong> "
-            # else:
-            #     html += f'<a href="/search?search_contact={q}&page={p}"></button>{p}</button></a>  '
 
         if page < total_pages:
             html += f"<a href='/search?search_contact={q}&page={page+1}&page_size={page_size}'><button>Next</button></a>"
